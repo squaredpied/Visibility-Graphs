@@ -152,13 +152,15 @@ def load_vertices_from_file(filename: str):
     return vertices
 
 def plot(vertices, edges=None, LineSegs=None):
-
+    #plot the vertices
     for v in vertices:
         plt.plot(v.x, v.y, 'r+')
 
+    #plot the edges in the environment
     for env in LineSegs:
         plt.plot([env.p1.x, env.p2.x],[env.p1.y, env.p2.y], 'k')
     
+    #plot the visibility graph
     if edges!=None:
         for e in edges:
             plt.plot([vertices[e[0]].x, vertices[e[1]].x],
@@ -171,10 +173,11 @@ def plot(vertices, edges=None, LineSegs=None):
     plt.show()
 
 def LineSegmentEnv(vertices):
+    #Get the line segments (edges) in an environment
     pointcon=[]
     poly=-1
     LineSegments=[]
-    for i in range(1,vertices[-1].id+1):
+    for i in range(0,vertices[-1].id+1):
             if poly!=-1 and len(pointcon)!=0 and poly!=vertices[i].poly_id:
                 linesegment=Segment(pointcon[-1], pointcon[0])
                 LineSegments.append(linesegment)
@@ -188,117 +191,123 @@ def LineSegmentEnv(vertices):
                 pointcon.append(vertices[i])
     return LineSegments
 
-def direction(a, b, c):
+def collinearitycheck(a, b, c):
     val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y)
     if val == 0:
         # Collinear
         return 0
-    elif val < 0:
-        # Anti-clockwise direction
-        return 2
-    # Clockwise direction
     return 1
 
-def onLine(l1, p):
-    # Check whether p is on the line or not
-    if (
-        p.x <= max(l1.p1.x, l1.p2.x)
-        and p.x >= min(l1.p1.x, l1.p2.x)
-        and (p.y <= max(l1.p1.y, l1.p2.y) and p.y >= min(l1.p1.y, l1.p2.y))
-    ):
-        return True
-    return False
-
 def checkInside(polygon, point):
+    #Ray casting algorithm
     n=len(polygon)
-    exline = Segment(point, Point(9999, point.y+20))
     count = 0
-    i = 0
     for i in range(n):
-        # Forming a line from two consecutive points of poly
-        side = Segment(polygon[i], polygon[(i + 1) % n])
-        x,y=side.intersect(exline)
-        if x:
-            # If side is intersects ex
-            if (direction(side.p1, point, side.p2) == 0):
-                return onLine(side, point)
+        # Get an edge of the polygon
+        j=(i+1)%n
+        if ((polygon[i].y > point.y) != (polygon[j].y > point.y)) and \
+           (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x):
             count += 1
  
-    # When count is odd
-
     return count & 1
 
-def isvisible(v,vi,S, vertices):
+def isvisible(v:Point,vi:Point,S, vertices:List[Point]):
+    #Check for colinearity with other vertices
     segments=LineSegmentEnv(vertices)
     for vertex in vertices:
-        if vertex!=v or vertex!=vi:
-            colinear=direction(v,vi,vertex)
+        if vertex!=v and vertex!=vi:
+            colinear=collinearitycheck(v,vi,vertex)
             if colinear==0:
                 if (vertex.x>v.x and vertex.x<vi.x) or (vertex.y>v.y and vertex.y<vi.y) or (vertex.x>vi.x and vertex.x<v.x) or (vertex.y>vi.y and vertex.y<v.y):
                     return False
+
+    #Check for vertices of the same polygon id   
     if v.poly_id == vi.poly_id:
         Poly=[]
         for seg in segments:
-            if ((seg.p1.x==vi.x and seg.p1.y==vi.y) and (seg.p2.x==v.x and seg.p2.y==v.y)) or ((seg.p1.x==v.x and seg.p1.y==v.y) and (seg.p2.x==vi.x and seg.p2.y==vi.y)):
+            if ((seg.p1==vi) and (seg.p2==v)) or ((seg.p1==v) and (seg.p2==vi)):
                 return True
 
             if (seg.p1.poly_id==v.poly_id):
                 Poly.append(seg.p1)
-        mid_point=Point((v.x+vi.x)/2,(v.y+vi.y)/2)
+        mid_point=Point((v.x+vi.x)*0.5,(v.y+vi.y)*0.5)
         return not checkInside(Poly,mid_point)
 
+    #Return True if S is empty
     if len(S)==0:
         return True
+    
+    #Check if edge (v, vi) intersects the first edge on S
     current_seg=Segment(v,vi)
     first_seg=list(S.keys())[0]
-    bin,dist=current_seg.intersect(first_seg)
+    bin,_=current_seg.intersect(first_seg)
     if bin==True:
-        if (first_seg.p1.x!=vi.x and first_seg.p1.y!=vi.y) or (first_seg.p2.x!=vi.x and first_seg.p2.y!=vi.y) or (first_seg.p2.x!=v.x and first_seg.p2.y!=v.y) or (first_seg.p1.x!=v.x and first_seg.p1.y!=v.y):
+        if (first_seg.p1!=vi) or (first_seg.p2!=vi) or (first_seg.p1!=v) or (first_seg.p2!=v):
             return False
     else:
-        for seg in segments:
-            cond, val=current_seg.intersect(seg)
-            if (cond==True):
-                return False
         return True
 
 def RotationalSweepAlg(v, vertices: List[Point]):
-    subset_v=[]
-    S={}
-    edges=[]
+    # Initialize empty lists and dictionaries
+    subset_v = []
+    S = {}
+    edges = []
+    maximum_x = float('-inf')
+    new_vertices = []
+
+    # Create line segments and update maximum_x
     for vertex in vertices:
         if vertex != v:
-           edges.append(Segment(v, vertex))
+            edges.append(Segment(v, vertex))
+            new_vertices.append(vertex)
+        maximum_x = vertex.x if vertex.x > maximum_x else maximum_x
 
-    epsilon=[seg.anglefromhorizontal() for seg in edges]
-    epsilon.sort()
-    horizontal_line=Segment(v, Point(x=99, y=v.y))
-    env=LineSegmentEnv(vertices)
+    # Calculate angles of line segments from the horizontal axis
+    epsilon = [seg.anglefromhorizontal() for seg in edges]
+
+    # Sort vertices and angles in ascending order of angles
+    indexes = sorted(range(len(epsilon)), key=epsilon.__getitem__)
+    new_vertices = list(map(new_vertices.__getitem__, indexes))
+    epsilon = list(map(epsilon.__getitem__, indexes))
+
+    # Create a horizontal line slightly to the right of the vertices
+    horizontal_line = Segment(v, Point(x=maximum_x + 1, y=v.y))
+
+    # Initialize the environment (line segments)
+    env = LineSegmentEnv(vertices)
+
+    # Process intersection with the horizontal line and store distances in S
     for i in env:
-        cond,point1=horizontal_line.intersect(i)
-        if cond==True:
-            S[i]=point1.dist(v)
-    S=dict(sorted(S.items(), key=lambda x:x[1]))
- 
-    for angle in epsilon:
-        #print(len(S.keys()))
+        cond, point1 = horizontal_line.intersect(i)
+        if cond == True:
+            S[i] = point1.dist(v)
 
-        for vertex in vertices:
-            newseg=Segment(v,vertex)
-            if (newseg.anglefromhorizontal() == angle) and (isvisible(v,vertex,S,vertices)==True):
-                subset_v.append((v.id,vertex.id))
-                for edge in env:
-                    if (edge.p1.x==vertex.x and edge.p1.y==vertex.y) or (edge.p2.x==vertex.x and edge.p2.y==vertex.y):
-                        if S.get(edge) is None:
-                            line_seg=Segment.point_angle_length(v,angle+0.00005,99999)
-                            cond,point1=line_seg.intersect(edge)
-                            if cond==True:
-                                S[edge]=point1.dist(v)
-                            #S[edge]=vertex.dist_line(edge)
-                        else:
-                            del S[edge]
-        S=dict(sorted(S.items(), key=lambda x:x[1]))
-        #print(S)
+    # Sort S based on distances
+    S = dict(sorted(S.items(), key=lambda x: x[1]))
+
+    # Main loop for each angle and corresponding vertex
+    for angle, vertex in zip(epsilon, new_vertices):
+        # Check visibility and add to subset_v if visible
+        if isvisible(v, vertex, S, vertices) == True:
+            subset_v.append((v.id, vertex.id))
+
+        # Update S based on intersections with edges connected to the current vertex
+        for edge in env:
+            if (edge.p1 == vertex) or (edge.p2 == vertex):
+                if S.get(edge) is None:
+                    # Create a line segment slightly offset from the angle and find intersection
+                    line_seg = Segment.point_angle_length(v, angle + 0.00000001, 99999)
+                    cond, point1 = line_seg.intersect(edge)
+                    if cond == True:
+                        S[edge] = point1.dist(v)
+                else:
+                    # If the edge is already in S, remove it
+                    del S[edge]
+
+        # Sort S based on distances
+        S = dict(sorted(S.items(), key=lambda x: x[1]))
+
+    # Return the subset of visible vertices
     return subset_v
 
 if __name__ == "__main__":
@@ -310,9 +319,13 @@ if __name__ == "__main__":
 
         LineSegs=LineSegmentEnv(vertices)
         visibility_graph=[]
+        
+        #Implement RPS for all vertices
         for vertex in vertices:
             vert=RotationalSweepAlg(vertex,vertices)
             visibility_graph=visibility_graph+vert
+        
+        #remove duplicate edges
         for x in visibility_graph:
             for y in visibility_graph:
                 if (x[0]==y[1] and x[1]==y[0]):
@@ -320,6 +333,3 @@ if __name__ == "__main__":
 
         print(visibility_graph)
         plot(vertices, visibility_graph, LineSegs=LineSegs)
-
-
-
